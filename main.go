@@ -14,6 +14,7 @@ func OnPeer(peer p2p.Peer) error {
 	fmt.Println("Peer is Connected")
 	return nil
 }
+
 func main() {
 	tcpOpts := p2p.TCPTransportOps{
 		ListenAddress: ":3000",
@@ -22,6 +23,7 @@ func main() {
 		OnPeer:        OnPeer,
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
+
 	if err := tr.ListenAndAccept(); err != nil {
 		log.Fatal(err)
 	}

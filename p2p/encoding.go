@@ -21,6 +21,7 @@ func (dec GOBDecoder) Decode(r io.Reader, message *RPC) error {
 	if err != nil {
 		return fmt.Errorf("failed to decode: %w", err)
 	}
+
 	return nil
 }
 
@@ -32,6 +33,8 @@ func (dec DefaultDecoder) Decode(r io.Reader, message *RPC) error {
 	if err != nil {
 		return err
 	}
+
 	message.Payload = buf[:n]
+
 	return nil
 }

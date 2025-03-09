@@ -7,8 +7,7 @@ import (
 )
 
 type TCPPeer struct {
-	conn net.Conn
-
+	conn     net.Conn
 	outbound bool
 }
 
@@ -45,7 +44,6 @@ func (transport *TCPTransport) Queue() <-chan RPC {
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
-
 	var err error
 
 	t.listener, err = net.Listen("tcp", t.ListenAddress)
@@ -54,6 +52,7 @@ func (t *TCPTransport) ListenAndAccept() error {
 	}
 
 	go t.startAcceptLoop()
+
 	return nil
 }
 
@@ -70,11 +69,13 @@ func (t *TCPTransport) startAcceptLoop() {
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	var err error
+
 	//This defer function make sure when the execution of the current function ends it will call this function!
 	defer func() {
 		fmt.Printf("Closing connection: %s\n", conn.RemoteAddr())
 		conn.Close()
 	}()
+
 	peer := NewTCPPeer(conn, true)
 	//If a value is not being assigned with (:) this then its using the already defined var!
 	if err = t.HandshakeFunc(peer); err != nil {
@@ -91,23 +92,22 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	msg := RPC{}
 	for {
 		err := t.Decoder.Decode(conn, &msg)
-
 		if err == net.ErrClosed || err == io.EOF {
 			return
 		}
 
 		/*
-				There was A error here as we know when a conncetion is closed from the client side or in some way
-				we were handling the error based connection closing like No Peer Connection or no handshake successful
-				But with the client closing the connection i think that can be handled using io.EOF or ErrClosed
-				Which is fixed now!
-			    We can use panic to print what kind of error its!
+			There was A error here as we know when a conncetion is closed from the client side or in some way
+			we were handling the error based connection closing like No Peer Connection or no handshake successful
+			But with the client closing the connection i think that can be handled using io.EOF or ErrClosed
+			Which is fixed now!
+			We can use panic to print what kind of error its!
 		*/
-
 		if err != nil {
 			fmt.Printf("Error Reading the message or decoding to peer: %s\n", err)
 			continue
 		}
+
 		msg.From = conn.RemoteAddr()
 		t.queuemessage <- msg
 	}
