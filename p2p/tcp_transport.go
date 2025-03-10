@@ -1,22 +1,19 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
 )
 
 type TCPPeer struct {
-	conn     net.Conn
+	net.Conn
 	outbound bool
 }
 
 func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
-	return &TCPPeer{conn: conn, outbound: outbound}
-}
-
-func (peer *TCPPeer) Close() error {
-	return peer.conn.Close()
+	return &TCPPeer{Conn: conn, outbound: outbound}
 }
 
 type TCPTransportOps struct {
@@ -39,8 +36,28 @@ func NewTCPTransport(opts TCPTransportOps) *TCPTransport {
 	}
 }
 
+func (tcppeer *TCPPeer) Send(b []byte) error {
+	_, err := tcppeer.Conn.Write(b)
+	return err
+}
+
+// Closes the TCP Connection Socket
+func (transport *TCPTransport) Close() error {
+
+	return transport.listener.Close()
+}
+
 func (transport *TCPTransport) Queue() <-chan RPC {
 	return transport.queuemessage
+}
+
+func (transport *TCPTransport) Call(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	go transport.handleConn(conn, true)
+	return nil
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
@@ -51,6 +68,7 @@ func (t *TCPTransport) ListenAndAccept() error {
 		return err
 	}
 
+	fmt.Println("Listening on " + t.ListenAddress)
 	go t.startAcceptLoop()
 
 	return nil
@@ -59,15 +77,17 @@ func (t *TCPTransport) ListenAndAccept() error {
 func (t *TCPTransport) startAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
 		if err != nil {
 			fmt.Printf("Error accepting connection: %s\n", err)
 		}
-		fmt.Printf("Accepting New connection from %s\n", conn.RemoteAddr())
-		go t.handleConn(conn)
+		go t.handleConn(conn, false)
 	}
 }
 
-func (t *TCPTransport) handleConn(conn net.Conn) {
+func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	var err error
 
 	//This defer function make sure when the execution of the current function ends it will call this function!
@@ -76,7 +96,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		conn.Close()
 	}()
 
-	peer := NewTCPPeer(conn, true)
+	peer := NewTCPPeer(conn, outbound)
 	//If a value is not being assigned with (:) this then its using the already defined var!
 	if err = t.HandshakeFunc(peer); err != nil {
 		return

@@ -1,40 +1,50 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
 	"github.com/sunnyashlesh16/go-distributedFileSystem/p2p"
 	"log"
+	"time"
 )
 
-//TIP <p>To run your code, right-click the code and select <b>Run</b>.</p> <p>Alternatively, click
-// the <icon src="AllIcons.Actions.Execute"/> icon in the gutter and select the <b>Run</b> menu item from here.</p>
-
-// Function Reference
-func OnPeer(peer p2p.Peer) error {
-	fmt.Println("Peer is Connected")
-	return nil
-}
-
-func main() {
+func makeServer(listenAddr string, nodes ...string) *Server {
 	tcpOpts := p2p.TCPTransportOps{
-		ListenAddress: ":3000",
+		ListenAddress: listenAddr,
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       p2p.DefaultDecoder{},
-		OnPeer:        OnPeer,
 	}
 	tr := p2p.NewTCPTransport(tcpOpts)
 
-	if err := tr.ListenAndAccept(); err != nil {
-		log.Fatal(err)
+	servOpts := ServerOpts{
+		RootStorageName: listenAddr + "_files",
+		TransFunc:       CASPathTransformFunc,
+		Transport:       tr,
+		Network:         nodes,
 	}
 
-	//Go Routine For Message Processing
+	s := NewFileServer(servOpts)
+
+	tr.OnPeer = s.RegisterPeer
+
+	return s
+}
+
+func main() {
+
+	s1 := makeServer(":3000", "")
+	s2 := makeServer(":4000", ":3000")
+
 	go func() {
-		for {
-			msg := <-tr.Queue()
-			fmt.Printf("%+v\n", msg)
+		if err := s1.Start(); err != nil {
+			log.Fatal(err)
 		}
 	}()
-
-	select {}
+	time.Sleep(1 * time.Second)
+	go s2.Start()
+	time.Sleep(1 * time.Second)
+	data := bytes.NewReader([]byte("Hello World"))
+	err := s2.StoreData("MyPrivateFolder", data)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
