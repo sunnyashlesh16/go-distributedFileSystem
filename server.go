@@ -15,6 +15,7 @@ import (
 // So, we need to register!
 func init() {
 	gob.Register(MessageStore{})
+	gob.Register(MessageGetFile{})
 }
 
 type ServerOpts struct {
@@ -73,6 +74,10 @@ type MessageStore struct {
 	Size int64
 }
 
+type MessageGetFile struct {
+	Key string
+}
+
 /*
 	    EVent Driven Programming Where the Select will do two things
 	    One is it will continuosly wait for the messages and listen to it and will not close the server!
@@ -125,7 +130,40 @@ func (server *Server) handleMessage(from string, msg *Message) error {
 		if err := server.handleMessageStore(from, v); err != nil {
 			log.Println("handle message error: ", err)
 		}
+
+	case MessageGetFile:
+		fmt.Printf("Received Data Message At Handle Message: %s %s\n", v.Key, msg.Payload)
+		if err := server.handleMessageGetFile(from, v); err != nil {
+			log.Println("handle message error: ", err)
+		}
 	}
+	return nil
+}
+
+func (server *Server) handleMessageGetFile(from string, msg MessageGetFile) error {
+	fmt.Println("Need TO Get A File From Disk and Send it oVer the wire This is peer")
+	if !server.Store.HasFile(msg.Key) {
+		//fmt.Println("File Doesn't Exists")
+		return errors.New("File Doesn't Exists in Netwrok")
+	}
+
+	fmt.Println("Reading The File As If its in the Store")
+	r, _, err := server.Store.Read(msg.Key)
+	if err != nil {
+		return err
+	}
+
+	peer, ok := server.peers[from]
+	if !ok {
+		return errors.New("Peer Doesn't Exists")
+	}
+
+	n, err := io.Copy(peer, r)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Written The File The peers %s", n)
+
 	return nil
 }
 
@@ -186,10 +224,32 @@ func (server *Server) broadcast(msg *Message) error {
 
 func (server *Server) GetData(key string) (io.Reader, error) {
 	if b := server.Store.HasFile(key); b != false {
+		fmt.Println("Getting Data- Found in the Local")
 		r, _, _ := server.Store.Read(key)
 		return r, nil
 	}
-	return nil, errors.New("file not found")
+
+	fmt.Println("Don't have the File Locally So We are Gonna Get it from network")
+
+	msg := Message{MessageGetFile{Key: key}}
+
+	if err := server.broadcast(&msg); err != nil {
+		return nil, err
+	}
+
+	for _, peer := range server.peers {
+		buf := new(bytes.Buffer)
+		n, err := io.Copy(buf, peer)
+
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("Writing Data The peers %s", n)
+		fmt.Printf("Got The Data From Peers: %s\n", msg)
+	}
+	select {}
+
+	return nil, nil
 }
 
 func (server *Server) StoreData(key string, r io.Reader) error {
