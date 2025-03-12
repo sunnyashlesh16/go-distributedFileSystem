@@ -1,9 +1,11 @@
 package main
 
 import (
-	"bytes"
+	"fmt"
 	"github.com/sunnyashlesh16/go-distributedFileSystem/p2p"
+	"io"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -16,7 +18,7 @@ func makeServer(listenAddr string, nodes ...string) *Server {
 	tr := p2p.NewTCPTransport(tcpOpts)
 
 	servOpts := ServerOpts{
-		RootStorageName: listenAddr + "_files",
+		RootStorageName: strings.Split(listenAddr, ":")[1] + "_network",
 		TransFunc:       CASPathTransformFunc,
 		Transport:       tr,
 		Network:         nodes,
@@ -42,9 +44,20 @@ func main() {
 	time.Sleep(1 * time.Second)
 	go s2.Start()
 	time.Sleep(1 * time.Second)
-	data := bytes.NewReader([]byte("Hello World"))
-	err := s2.StoreData("MyPrivateFolder", data)
+
+	//data := bytes.NewReader([]byte("This is the largest File"))
+	//s2.StoreData("MySecond Folder", data)
+
+	r, err := s2.GetData("MySecond Folder")
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	b, err := io.ReadAll(r)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(string(b))
+	select {}
 }

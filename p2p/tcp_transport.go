@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 )
 
 type TCPPeer struct {
 	net.Conn
 	outbound bool
+	//If can use capital one as the starting letter then it can be exported !
+	Wg *sync.WaitGroup
 }
 
 func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
-	return &TCPPeer{Conn: conn, outbound: outbound}
+	return &TCPPeer{Conn: conn, outbound: outbound, Wg: &sync.WaitGroup{}}
 }
 
 type TCPTransportOps struct {
@@ -111,11 +114,11 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 
 	msg := RPC{}
 	for {
+		//This will Accept the data using the r from the conn and align with the msg!
 		err := t.Decoder.Decode(conn, &msg)
 		if err == net.ErrClosed || err == io.EOF {
 			return
 		}
-
 		/*
 			There was A error here as we know when a conncetion is closed from the client side or in some way
 			we were handling the error based connection closing like No Peer Connection or no handshake successful
@@ -127,8 +130,31 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 			fmt.Printf("Error Reading the message or decoding to peer: %s\n", err)
 			continue
 		}
+		/*
+			Here is the crazy part where we know the normal messages or small messages will be directly sent to the
+			connection and can be read using event driven architecture we have set up in the loop using channel triggers
+			encoding, and decoding way with proper type
 
-		msg.From = conn.RemoteAddr()
+			But When it comes to large data or streaming or uploading or reading we need the help of chunking,
+			go routines to divide, and wait groups/locks!
+			When ever file is uploading we can set a go routine for each chunk with a wait group and make sure we defer once that chunk
+			is done!
+			Before saying the uploading is done! we will set wait group as wait!
+			And once all the chunks are done we will set wait group as done  to print the task is done
+			So when there are mutiple wg's,
+			wg.add will add a thread lets say only when in a thread wg.Done is called the wg will be decreased!
+			but wg.wait will wait until the wg is set to 0!
+
+			But how can the difference be made between small and large!
+			A control frame with 16 byte frame which will have the frame type so !
+			That frame type will be 0xO1 or 0x02?
+		*/
+		msg.From = conn.RemoteAddr().String()
+		fmt.Printf("Received message but this is at transport end from %s: of %s\n", conn.RemoteAddr(), msg)
+		peer.Wg.Add(1)
+		fmt.Println("Peer is added to wait group")
 		t.queuemessage <- msg
+		peer.Wg.Wait()
+		fmt.Printf("Peer: %s is removed from wg and for loop can normally accept the messages\n", peer.RemoteAddr().String())
 	}
 }

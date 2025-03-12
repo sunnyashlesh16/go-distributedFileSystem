@@ -28,7 +28,7 @@ func CASPathTransformFunc(key string) PathKey {
 	}
 
 	return PathKey{
-		PathName: defaultRootPathName + "/" + strings.Join(paths, "/"),
+		PathName: strings.Join(paths, "/"),
 		FileName: Hash,
 	}
 }
@@ -81,13 +81,15 @@ func NewStore(opts StoreOpts) *Store {
 
 func (s *Store) HasFile(key string) bool {
 	pathKey := s.PathNameTransFunc(key)
-	_, err := os.Stat(pathKey.PathName)
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
+	_, err := os.Stat(pathNameWithRoot)
 	return !errors.Is(err, os.ErrNotExist)
 }
 
 func (s *Store) Clear() error {
 	return os.RemoveAll(s.Root)
 }
+
 func (s *Store) Delete(key string) error {
 	pathkey := s.PathNameTransFunc(key)
 
@@ -95,7 +97,7 @@ func (s *Store) Delete(key string) error {
 		fmt.Printf("Removed the %+v From The Disk", pathkey.FileName)
 	}()
 
-	return os.RemoveAll(defaultRootPathName + "/" + pathkey.GetFirstRootPath())
+	return os.RemoveAll(s.Root + "/" + pathkey.GetFirstRootPath())
 }
 
 // To read the Contents Of The File based on the key value provided, When Don't Know About the type just use any!
@@ -114,33 +116,36 @@ func (s *Store) Read(key string) (io.Reader, any, error) {
 	return buf, nb, err
 }
 
-// This will Open The File to Read the COntents Above
+// This will Open The File to Read the Contents Above
 func (s *Store) readStream(key string) (io.ReadCloser, error) {
 	pathKey := s.PathNameTransFunc(key)
-	return os.Open(pathKey.GetPathName())
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.GetPathName())
+	return os.Open(pathNameWithRoot)
 }
 
-func (s *Store) Write(key string, r io.Reader) error {
+func (s *Store) Write(key string, r io.Reader) (int64, error) {
+	fmt.Printf("Writing %+v To The Disk Of %+v On Server: %+v", key, r, s.Root)
 	return s.writeStream(key, r)
 }
 
 // Writing the input reader io content to a Specific Pthaname and file name customized and copy them to the newly created file.
-func (store *Store) writeStream(key string, r io.Reader) error {
+func (store *Store) writeStream(key string, r io.Reader) (int64, error) {
 	//Gets the PathName
 	pathKey := store.PathNameTransFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s", store.Root, pathKey.PathName)
 
 	//Making A Directory
-	if err := os.MkdirAll(pathKey.PathName, os.ModePerm); err != nil {
-		return err
+	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
+		return 0, err
 	}
 
 	//Gets the PathName With Proper styling
 	pathAndFileName := pathKey.GetPathName()
-
+	pathNameAndFileNameWithRoot := fmt.Sprintf("%s/%s", store.Root, pathAndFileName)
 	//Creates a File
-	file, err := os.Create(pathAndFileName)
+	file, err := os.Create(pathNameAndFileNameWithRoot)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	//Closes the file on function end using Defer
@@ -149,9 +154,9 @@ func (store *Store) writeStream(key string, r io.Reader) error {
 	//Now Copies the File Content From the Reader. Also, Update is working well
 	nb, err := io.Copy(file, r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	fmt.Printf("%d bytes written to %s\n", nb, pathAndFileName)
-	return nil
+	fmt.Printf("%d bytes written to %s\n", nb, pathNameAndFileNameWithRoot)
+	return nb, nil
 }
