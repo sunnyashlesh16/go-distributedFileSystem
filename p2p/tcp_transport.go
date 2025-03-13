@@ -12,11 +12,11 @@ type TCPPeer struct {
 	net.Conn
 	outbound bool
 	//If can use capital one as the starting letter then it can be exported !
-	Wg *sync.WaitGroup
+	wg *sync.WaitGroup
 }
 
 func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
-	return &TCPPeer{Conn: conn, outbound: outbound, Wg: &sync.WaitGroup{}}
+	return &TCPPeer{Conn: conn, outbound: outbound, wg: &sync.WaitGroup{}}
 }
 
 type TCPTransportOps struct {
@@ -46,6 +46,10 @@ func (tcppeer *TCPPeer) Send(b []byte) error {
 
 func (transport *TCPTransport) Addr() string {
 	return transport.ListenAddress
+}
+
+func (peer *TCPPeer) Closestream() {
+	peer.wg.Done()
 }
 
 // Closes the TCP Connection Socket
@@ -158,9 +162,9 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		msg.From = conn.RemoteAddr().String()
 		if msg.Stream {
 			fmt.Println("Peer is added to wait group")
-			peer.Wg.Add(1)
+			peer.wg.Add(1)
 			fmt.Println("Peer is waiting")
-			peer.Wg.Wait()
+			peer.wg.Wait()
 			fmt.Println("Peer is Removed From Waiting Group Upon Calling the done")
 			continue
 		}

@@ -51,7 +51,11 @@ func main() {
 		s2.StoreData(fmt.Sprintf("MyFileNumber-%d", i), data)
 		time.Sleep(5 * time.Millisecond)
 	}
-	//r, err := s2.GetData("MySecond Folder")
+
+	//data := bytes.NewReader([]byte("This is the largest File"))
+	//s2.StoreData("PersonalFile", data)
+
+	//r, err := s2.GetData("PersonalFile")
 	//if err != nil {
 	//	log.Fatal(err)
 	//}
@@ -62,5 +66,4 @@ func main() {
 	//}
 	//
 	//fmt.Println(string(b))
-	select {}
 }

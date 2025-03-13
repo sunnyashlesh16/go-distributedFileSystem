@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
@@ -101,26 +100,25 @@ func (s *Store) Delete(key string) error {
 }
 
 // To read the Contents Of The File based on the key value provided, When Don't Know About the type just use any!
-func (s *Store) Read(key string) (io.Reader, any, error) {
-	file, err := s.readStream(key)
+func (s *Store) Read(key string) (io.Reader, int64, error) {
+	return s.readStream(key)
+}
+
+// This will Open The File to Read the Contents Above
+func (s *Store) readStream(key string) (io.ReadCloser, int64, error) {
+	pathKey := s.PathNameTransFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.GetPathName())
+	file, err := os.Open(pathNameWithRoot)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	defer file.Close()
+	f, err := file.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
 
-	buf := new(bytes.Buffer)
-	//Ignore the other values other than the error! We can USe (_)
-	nb, err := io.Copy(buf, file)
-
-	return buf, nb, err
-}
-
-// This will Open The File to Read the Contents Above
-func (s *Store) readStream(key string) (io.ReadCloser, error) {
-	pathKey := s.PathNameTransFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.GetPathName())
-	return os.Open(pathNameWithRoot)
+	return file, f.Size(), nil
 }
 
 func (s *Store) Write(key string, r io.Reader) (int64, error) {

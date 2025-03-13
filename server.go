@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -133,16 +134,24 @@ func (server *Server) handleMessageGetFile(from string, msg MessageGetFile) erro
 	}
 
 	fmt.Println("Reading The File As If its in the Store")
-	r, _, err := server.Store.Read(msg.Key)
+	r, fileSize, err := server.Store.Read(msg.Key)
 	if err != nil {
 		return err
 	}
+	if rc, ok := r.(io.ReadCloser); ok {
+		defer func() {
+			_ = rc.Close()
+		}()
+	}
+
+	time.Sleep(5 * time.Millisecond)
 
 	peer, ok := server.peers[from]
 	if !ok {
 		return errors.New("Peer Doesn't Exists")
 	}
-
+	peer.Send([]byte{p2p.IncomingStream})
+	binary.Write(peer, binary.LittleEndian, &fileSize)
 	n, err := io.Copy(peer, r)
 	if err != nil {
 		return err
@@ -164,7 +173,7 @@ func (server *Server) handleMessageStore(from string, msg MessageStore) error {
 	}
 	fmt.Printf("Stored The File From The Peer:%s Locally\n", peer)
 	fmt.Println("Calling Off the Waiting Group")
-	peer.(*p2p.TCPPeer).Wg.Done()
+	peer.Closestream()
 	return nil
 }
 
@@ -226,19 +235,23 @@ func (server *Server) GetData(key string) (io.Reader, error) {
 		return nil, err
 	}
 
+	time.Sleep(5 * time.Millisecond)
+
 	for _, peer := range server.peers {
-		buf := new(bytes.Buffer)
-		n, err := io.Copy(buf, peer)
+		var fileSize int64
+		binary.Read(peer, binary.LittleEndian, &fileSize)
+		n, err := server.Store.Write(key, io.LimitReader(peer, fileSize))
 
 		if err != nil {
 			return nil, err
 		}
 		fmt.Printf("Writing Data The peers %s", n)
 		fmt.Printf("Got The Data From Peers: %s\n", msg)
+		peer.Closestream()
 	}
-	select {}
-
-	return nil, nil
+	//select {}
+	re, _, _ := server.Store.Read(key)
+	return re, nil
 }
 
 func (server *Server) StoreData(key string, r io.Reader) error {

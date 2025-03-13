@@ -14,4 +14,5 @@ type Peer interface {
 	net.Conn
 	Send(b []byte) error
 	Close() error
+	Closestream()
 }
