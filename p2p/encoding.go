@@ -28,6 +28,18 @@ func (dec GOBDecoder) Decode(r io.Reader, message *RPC) error {
 type DefaultDecoder struct{}
 
 func (dec DefaultDecoder) Decode(r io.Reader, message *RPC) error {
+	fmt.Println("Decoding the Message")
+	peerbuf := make([]byte, 1)
+	_, err := r.Read(peerbuf)
+	if err != nil {
+		return fmt.Errorf("failed to read: %w", err)
+	}
+	fmt.Printf("Decoding a the Byte%v\n", peerbuf[0])
+
+	if peerbuf[0] == IncomingStream {
+		message.Stream = true
+		return nil
+	}
 	/*
 		That EOF error is because of the below code!
 		Where, we are sending the data as the gob encoder way the

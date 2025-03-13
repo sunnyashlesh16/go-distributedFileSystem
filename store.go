@@ -94,7 +94,7 @@ func (s *Store) Delete(key string) error {
 	pathkey := s.PathNameTransFunc(key)
 
 	defer func() {
-		fmt.Printf("Removed the %+v From The Disk", pathkey.FileName)
+		fmt.Printf("Removed the %+v From The Disk\n", pathkey.FileName)
 	}()
 
 	return os.RemoveAll(s.Root + "/" + pathkey.GetFirstRootPath())
@@ -124,7 +124,7 @@ func (s *Store) readStream(key string) (io.ReadCloser, error) {
 }
 
 func (s *Store) Write(key string, r io.Reader) (int64, error) {
-	fmt.Printf("Writing %+v To The Disk Of %+v On Server: %+v", key, r, s.Root)
+	fmt.Printf("Writing %+v To The Disk Of %+v On Server: %+v\n", key, r, s.Root)
 	return s.writeStream(key, r)
 }
 

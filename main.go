@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/sunnyashlesh16/go-distributedFileSystem/p2p"
-	"io"
 	"log"
 	"strings"
 	"time"
@@ -45,19 +45,22 @@ func main() {
 	go s2.Start()
 	time.Sleep(1 * time.Second)
 
-	//data := bytes.NewReader([]byte("This is the largest File"))
-	//s2.StoreData("MySecond Folder", data)
-
-	r, err := s2.GetData("MySecond Folder")
-	if err != nil {
-		log.Fatal(err)
+	for i := 1; i < 11; i++ {
+		data := bytes.NewReader([]byte(fmt.Sprintf("This is the the data of my fileNumber-%d", i)))
+	_:
+		s2.StoreData(fmt.Sprintf("MyFileNumber-%d", i), data)
+		time.Sleep(5 * time.Millisecond)
 	}
-
-	b, err := io.ReadAll(r)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(string(b))
+	//r, err := s2.GetData("MySecond Folder")
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//b, err := io.ReadAll(r)
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//
+	//fmt.Println(string(b))
 	select {}
 }

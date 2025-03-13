@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 )
 
 // For anything we are setting up for any, In the case of message we are setting the apyload as any!
@@ -95,28 +96,13 @@ func (server *Server) loop() {
 		select {
 		case rpc := <-server.Transport.Queue():
 			message := Message{}
-			//decoder := gob.NewDecoder()
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&message); err != nil {
-				log.Println("decoding error: ", err)
+				log.Printf("decoding error:%v", err)
 			}
-			fmt.Printf("Printing payload at the event loop: %s\n", message)
+			fmt.Printf("Printing payload:%s at the peer loop end\n", message)
 			if err := server.handleMessage(rpc.From, &message); err != nil {
-				panic(err)
-				log.Println("handle message error: ", err)
+				log.Printf("handle message error:%s", err)
 			}
-			//fmt.Printf("Printing payload at the event loop: %s\n", message)
-			//
-			//peer, ok := server.peers[rpc.From]
-			//
-			//if !ok {
-			//	log.Println("peer not found")
-			//}
-			//
-			//b := make([]byte, 1000)
-			//if _, err := peer.Read(b); err != nil {
-			//	panic(err)
-			//}
-			//fmt.Printf("received the streamed message %s\n", string(b))
 		case <-server.quitch:
 			return
 		}
@@ -126,13 +112,13 @@ func (server *Server) loop() {
 func (server *Server) handleMessage(from string, msg *Message) error {
 	switch v := msg.Payload.(type) {
 	case MessageStore:
-		fmt.Printf("Received Data Message At Handle Message: %s %s\n", v.Key)
+		fmt.Printf("Received Store Message For the File:%s\n", v.Key)
 		if err := server.handleMessageStore(from, v); err != nil {
 			log.Println("handle message error: ", err)
 		}
 
 	case MessageGetFile:
-		fmt.Printf("Received Data Message At Handle Message: %s %s\n", v.Key, msg.Payload)
+		fmt.Printf("Received Get Message For the File:%s\n", v.Key)
 		if err := server.handleMessageGetFile(from, v); err != nil {
 			log.Println("handle message error: ", err)
 		}
@@ -143,8 +129,7 @@ func (server *Server) handleMessage(from string, msg *Message) error {
 func (server *Server) handleMessageGetFile(from string, msg MessageGetFile) error {
 	fmt.Println("Need TO Get A File From Disk and Send it oVer the wire This is peer")
 	if !server.Store.HasFile(msg.Key) {
-		//fmt.Println("File Doesn't Exists")
-		return errors.New("File Doesn't Exists in Netwrok")
+		return errors.New("file Doesn't Exists in network")
 	}
 
 	fmt.Println("Reading The File As If its in the Store")
@@ -172,13 +157,14 @@ func (server *Server) handleMessageStore(from string, msg MessageStore) error {
 	if !ok {
 		log.Println("peer not found")
 	}
-	fmt.Printf("Received Data Message At Storing To The Server: %s %s\n", msg, peer)
+	fmt.Printf("Received Data Message:%v At Storing To The Peer:%s\n", msg, peer)
 	// Limiting the reader to wait only for 25 bytes during the streaming!
 	if _, err := server.Store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		log.Println("writing error: ", err)
 	}
+	fmt.Printf("Stored The File From The Peer:%s Locally\n", peer)
+	fmt.Println("Calling Off the Waiting Group")
 	peer.(*p2p.TCPPeer).Wg.Done()
-
 	return nil
 }
 
@@ -209,12 +195,15 @@ func (server *Server) stream(msg *Message) error {
 
 func (server *Server) broadcast(msg *Message) error {
 	buf := new(bytes.Buffer)
-
 	if err := gob.NewEncoder(buf).Encode(msg); err != nil {
 		return err
 	}
-	fmt.Printf("Printing the message(Small) before broadcasting to the peers: %s\n", msg)
+	fmt.Printf("Printing the Message: %s before broadcasting to the peers\n", msg)
 	for _, peer := range server.peers {
+		fmt.Printf("Sending Message Byte To Peer: %s\n", peer)
+	_:
+		peer.Send([]byte{p2p.IncomingMessage})
+		fmt.Printf("Sending The Message:%s To the peer:%s\n", msg, peer)
 		if err := peer.Send(buf.Bytes()); err != nil {
 			return err
 		}
@@ -253,16 +242,19 @@ func (server *Server) GetData(key string) (io.Reader, error) {
 }
 
 func (server *Server) StoreData(key string, r io.Reader) error {
-	//Get the Data & Store it
-	ownBuf := new(bytes.Buffer)
-	//Right Once the r is read there won be data!Sp, using Tee reader
-	tee := io.TeeReader(r, ownBuf)
+
+	var (
+		//Get the Data & Store it
+		ownBuf = new(bytes.Buffer)
+		//Right Once the r is read there won be data!Sp, using Tee reader
+		tee = io.TeeReader(r, ownBuf)
+	)
+
 	n, err := server.Store.Write(key, tee)
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("Stored the data of file: %s on to the own server before broadcasting to the peers", key)
+	fmt.Printf("Stored the data of file: %s on to the own server before broadcasting to the peers\n", key)
 
 	msg := Message{
 		Payload: MessageStore{Key: key, Size: n},
@@ -271,15 +263,20 @@ func (server *Server) StoreData(key string, r io.Reader) error {
 	if err := server.broadcast(&msg); err != nil {
 		return err
 	}
+	fmt.Println("BroadCasted The File Message to The Peers")
 
-	fmt.Printf("BroadCasted The Message to The Peers")
+	time.Sleep(5 * time.Millisecond)
 
 	for _, peer := range server.peers {
+		fmt.Printf("Sending The Stream Byte to %s peer\n", peer)
+	_:
+		peer.Send([]byte{p2p.IncomingStream})
+		fmt.Printf(" Streaming The Data:%s to the peer %s\n", msg, peer)
 		n, err := io.Copy(peer, ownBuf)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s are return to the TCP Raw Socket", n)
+		fmt.Printf("%d are Written to peer %s TCP Raw Socket\n", n, peer)
 	}
 
 	return nil

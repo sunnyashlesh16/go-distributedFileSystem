@@ -3,6 +3,7 @@ package p2p
 import "net"
 
 type Transport interface {
+	Addr() string
 	ListenAndAccept() error
 	Queue() <-chan RPC
 	Close() error

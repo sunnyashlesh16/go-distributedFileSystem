@@ -44,6 +44,10 @@ func (tcppeer *TCPPeer) Send(b []byte) error {
 	return err
 }
 
+func (transport *TCPTransport) Addr() string {
+	return transport.ListenAddress
+}
+
 // Closes the TCP Connection Socket
 func (transport *TCPTransport) Close() error {
 
@@ -92,7 +96,6 @@ func (t *TCPTransport) startAcceptLoop() {
 
 func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 	var err error
-
 	//This defer function make sure when the execution of the current function ends it will call this function!
 	defer func() {
 		fmt.Printf("Closing connection: %s\n", conn.RemoteAddr())
@@ -112,11 +115,13 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 		}
 	}
 
-	msg := RPC{}
 	for {
+		fmt.Println("Accepting the Messages Continuously Over the Connection")
+		msg := RPC{}
+		fmt.Println("Setting The Message")
 		//This will Accept the data using the r from the conn and align with the msg!
 		err := t.Decoder.Decode(conn, &msg)
-		if err == net.ErrClosed || err == io.EOF {
+		if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 			return
 		}
 		/*
@@ -149,12 +154,18 @@ func (t *TCPTransport) handleConn(conn net.Conn, outbound bool) {
 			A control frame with 16 byte frame which will have the frame type so !
 			That frame type will be 0xO1 or 0x02?
 		*/
-		msg.From = conn.RemoteAddr().String()
 		fmt.Printf("Received message but this is at transport end from %s: of %s\n", conn.RemoteAddr(), msg)
-		peer.Wg.Add(1)
-		fmt.Println("Peer is added to wait group")
+		msg.From = conn.RemoteAddr().String()
+		if msg.Stream {
+			fmt.Println("Peer is added to wait group")
+			peer.Wg.Add(1)
+			fmt.Println("Peer is waiting")
+			peer.Wg.Wait()
+			fmt.Println("Peer is Removed From Waiting Group Upon Calling the done")
+			continue
+		}
+		fmt.Println("Message Is Added to the channel")
 		t.queuemessage <- msg
-		peer.Wg.Wait()
-		fmt.Printf("Peer: %s is removed from wg and for loop can normally accept the messages\n", peer.RemoteAddr().String())
+		//fmt.Printf("Peer: %s is removed from wg and for loop can normally accept the messages\n", peer.RemoteAddr().String())
 	}
 }
