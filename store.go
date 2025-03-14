@@ -78,9 +78,9 @@ func NewStore(opts StoreOpts) *Store {
 	return &Store{opts}
 }
 
-func (s *Store) HasFile(key string) bool {
+func (s *Store) HasFile(ID string, key string) bool {
 	pathKey := s.PathNameTransFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.PathName)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, ID, pathKey.PathName)
 	_, err := os.Stat(pathNameWithRoot)
 	return !errors.Is(err, os.ErrNotExist)
 }
@@ -89,25 +89,25 @@ func (s *Store) Clear() error {
 	return os.RemoveAll(s.Root)
 }
 
-func (s *Store) Delete(key string) error {
+func (s *Store) Delete(ID string, key string) error {
 	pathkey := s.PathNameTransFunc(key)
 
 	defer func() {
 		fmt.Printf("Removed the %+v From The Disk\n", pathkey.FileName)
 	}()
 
-	return os.RemoveAll(s.Root + "/" + pathkey.GetFirstRootPath())
+	return os.RemoveAll(s.Root + "/" + ID + "/" + pathkey.GetFirstRootPath())
 }
 
 // To read the Contents Of The File based on the key value provided, When Don't Know About the type just use any!
-func (s *Store) Read(key string) (io.Reader, int64, error) {
-	return s.readStream(key)
+func (s *Store) Read(ID string, key string) (io.Reader, int64, error) {
+	return s.readStream(ID, key)
 }
 
 // This will Open The File to Read the Contents Above
-func (s *Store) readStream(key string) (io.ReadCloser, int64, error) {
+func (s *Store) readStream(ID string, key string) (io.ReadCloser, int64, error) {
 	pathKey := s.PathNameTransFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.GetPathName())
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.Root, ID, pathKey.GetPathName())
 	file, err := os.Open(pathNameWithRoot)
 	if err != nil {
 		return nil, 0, err
@@ -121,16 +121,10 @@ func (s *Store) readStream(key string) (io.ReadCloser, int64, error) {
 	return file, f.Size(), nil
 }
 
-func (s *Store) Write(key string, r io.Reader) (int64, error) {
-	fmt.Printf("Writing %+v To The Disk Of %+v On Server: %+v\n", key, r, s.Root)
-	return s.writeStream(key, r)
-}
-
-// Writing the input reader io content to a Specific Pthaname and file name customized and copy them to the newly created file.
-func (store *Store) writeStream(key string, r io.Reader) (int64, error) {
+func (store *Store) WriteEncrypt(Key []byte, ID string, key string, r io.Reader) (int, error) {
 	//Gets the PathName
 	pathKey := store.PathNameTransFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", store.Root, pathKey.PathName)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", store.Root, ID, pathKey.PathName)
 
 	//Making A Directory
 	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
@@ -139,7 +133,45 @@ func (store *Store) writeStream(key string, r io.Reader) (int64, error) {
 
 	//Gets the PathName With Proper styling
 	pathAndFileName := pathKey.GetPathName()
-	pathNameAndFileNameWithRoot := fmt.Sprintf("%s/%s", store.Root, pathAndFileName)
+	pathNameAndFileNameWithRoot := fmt.Sprintf("%s/%s/%s", store.Root, ID, pathAndFileName)
+	//Creates a File
+	file, err := os.Create(pathNameAndFileNameWithRoot)
+	if err != nil {
+		return 0, err
+	}
+
+	//Closes the file on function end using Defer
+	defer file.Close()
+
+	//Now Copies the File Content From the Reader. Also, Update is working well
+	nb, err := CopyDecrypt(Key, r, file)
+	if err != nil {
+		return 0, err
+	}
+
+	fmt.Printf("%d bytes written to %s\n", nb, pathNameAndFileNameWithRoot)
+	return nb, nil
+}
+
+func (s *Store) Write(ID string, key string, r io.Reader) (int64, error) {
+	fmt.Printf("Writing %+v To The Disk Of %+v On Server: %+v\n", key, r, s.Root)
+	return s.writeStream(ID, key, r)
+}
+
+// Writing the input reader io content to a Specific Pthaname and file name customized and copy them to the newly created file.
+func (store *Store) writeStream(ID string, key string, r io.Reader) (int64, error) {
+	//Gets the PathName
+	pathKey := store.PathNameTransFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", store.Root, ID, pathKey.PathName)
+
+	//Making A Directory
+	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
+		return 0, err
+	}
+
+	//Gets the PathName With Proper styling
+	pathAndFileName := pathKey.GetPathName()
+	pathNameAndFileNameWithRoot := fmt.Sprintf("%s/%s/%s", store.Root, ID, pathAndFileName)
 	//Creates a File
 	file, err := os.Create(pathNameAndFileNameWithRoot)
 	if err != nil {

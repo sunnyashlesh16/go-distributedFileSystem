@@ -21,6 +21,8 @@ func init() {
 }
 
 type ServerOpts struct {
+	ID              string
+	Key             []byte
 	RootStorageName string
 	TransFunc       PathNameTransFunc
 	Transport       p2p.Transport
@@ -39,6 +41,9 @@ func NewFileServer(sopts ServerOpts) *Server {
 	storeOpts := StoreOpts{
 		Root:              sopts.RootStorageName,
 		PathNameTransFunc: sopts.TransFunc,
+	}
+	if len(sopts.ID) == 0 {
+		sopts.ID = GenerateID()
 	}
 	return &Server{
 		ServerOpts: sopts,
@@ -72,11 +77,13 @@ type Message struct {
 }
 
 type MessageStore struct {
+	ID   string
 	Key  string
 	Size int64
 }
 
 type MessageGetFile struct {
+	ID  string
 	Key string
 }
 
@@ -129,12 +136,13 @@ func (server *Server) handleMessage(from string, msg *Message) error {
 
 func (server *Server) handleMessageGetFile(from string, msg MessageGetFile) error {
 	fmt.Println("Need TO Get A File From Disk and Send it oVer the wire This is peer")
-	if !server.Store.HasFile(msg.Key) {
+	fmt.Printf("Error ikkaada:%s\n", msg.ID)
+	if !server.Store.HasFile(msg.ID, msg.Key) {
 		return errors.New("file Doesn't Exists in network")
 	}
 
 	fmt.Println("Reading The File As If its in the Store")
-	r, fileSize, err := server.Store.Read(msg.Key)
+	r, fileSize, err := server.Store.Read(msg.ID, msg.Key)
 	if err != nil {
 		return err
 	}
@@ -168,38 +176,13 @@ func (server *Server) handleMessageStore(from string, msg MessageStore) error {
 	}
 	fmt.Printf("Received Data Message:%v At Storing To The Peer:%s\n", msg, peer)
 	// Limiting the reader to wait only for 25 bytes during the streaming!
-	if _, err := server.Store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
+	if _, err := server.Store.Write(msg.ID, msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		log.Println("writing error: ", err)
 	}
 	fmt.Printf("Stored The File From The Peer:%s Locally\n", peer)
 	fmt.Println("Calling Off the Waiting Group")
 	peer.Closestream()
 	return nil
-}
-
-func (server *Server) stream(msg *Message) error {
-	//Basically we are setting the empty peers as io writers
-	/*
-		The magic is when i try to save the data on to the store that
-		is not sending the data to my peers when i click the multi writer to encode and send
-		it to all my peers that's gonna reach my conn peer as an message
-		which will trigger the handleConn functionalities and the message is set to the channel!
-		As in the loop we are waiting to get the message from our transport channel!
-		That will transferred!
-		This is pure event driven and message queue structure
-	*/
-	peers := []io.Writer{}
-	//Looping through each peers and append them to the peers
-	for _, peer := range server.peers {
-		peers = append(peers, peer)
-	}
-	fmt.Printf("Broadcasting payload at the event loop ppeeers: %s\n", peers)
-	//setting the multiwriter for ther peers
-	mw := io.MultiWriter(peers...)
-	fmt.Printf("Printing mw:%s\n", mw)
-	fmt.Printf("Printing Payload At Broadcast Function: %s\n", msg)
-	//returning by encoding the mw wrt payload
-	return gob.NewEncoder(mw).Encode(msg)
 }
 
 func (server *Server) broadcast(msg *Message) error {
@@ -221,15 +204,16 @@ func (server *Server) broadcast(msg *Message) error {
 }
 
 func (server *Server) GetData(key string) (io.Reader, error) {
-	if b := server.Store.HasFile(key); b != false {
+	if b := server.Store.HasFile(server.ID, key); b != false {
 		fmt.Println("Getting Data- Found in the Local")
-		r, _, _ := server.Store.Read(key)
+		r, _, _ := server.Store.Read(server.ID, key)
 		return r, nil
 	}
 
 	fmt.Println("Don't have the File Locally So We are Gonna Get it from network")
 
-	msg := Message{MessageGetFile{Key: key}}
+	msg := Message{MessageGetFile{ID: server.ID, Key: hashKey(key)}}
+	fmt.Printf("Printing the Message ID Before Sending: %s\n", msg.Payload.(MessageGetFile).ID)
 
 	if err := server.broadcast(&msg); err != nil {
 		return nil, err
@@ -240,8 +224,7 @@ func (server *Server) GetData(key string) (io.Reader, error) {
 	for _, peer := range server.peers {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
-		n, err := server.Store.Write(key, io.LimitReader(peer, fileSize))
-
+		n, err := server.Store.WriteEncrypt(server.Key, server.ID, key, io.LimitReader(peer, fileSize))
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +233,7 @@ func (server *Server) GetData(key string) (io.Reader, error) {
 		peer.Closestream()
 	}
 	//select {}
-	re, _, _ := server.Store.Read(key)
+	re, _, _ := server.Store.Read(server.ID, key)
 	return re, nil
 }
 
@@ -263,14 +246,14 @@ func (server *Server) StoreData(key string, r io.Reader) error {
 		tee = io.TeeReader(r, ownBuf)
 	)
 
-	n, err := server.Store.Write(key, tee)
+	n, err := server.Store.Write(server.ID, key, tee)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Stored the data of file: %s on to the own server before broadcasting to the peers\n", key)
 
 	msg := Message{
-		Payload: MessageStore{Key: key, Size: n},
+		Payload: MessageStore{ID: server.ID, Key: hashKey(key), Size: n + 16},
 	}
 
 	if err := server.broadcast(&msg); err != nil {
@@ -280,18 +263,20 @@ func (server *Server) StoreData(key string, r io.Reader) error {
 
 	time.Sleep(5 * time.Millisecond)
 
+	peers := []io.Writer{}
 	for _, peer := range server.peers {
-		fmt.Printf("Sending The Stream Byte to %s peer\n", peer)
-	_:
-		peer.Send([]byte{p2p.IncomingStream})
-		fmt.Printf(" Streaming The Data:%s to the peer %s\n", msg, peer)
-		n, err := io.Copy(peer, ownBuf)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("%d are Written to peer %s TCP Raw Socket\n", n, peer)
+		peers = append(peers, peer)
+	}
+	mw := io.MultiWriter(peers...)
+
+	mw.Write([]byte{p2p.IncomingStream})
+	//fmt.Printf(" Streaming The Data:%s to the peer %s\n", msg, peer)
+	_, err = CopyEncrypt(server.Key, ownBuf, mw)
+	if err != nil {
+		return err
 	}
 
+	fmt.Printf("%d are Written to peers TCP Raw Socket\n", n)
 	return nil
 }
 
